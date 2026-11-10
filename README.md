@@ -193,7 +193,8 @@ The business owner or staff member remains responsible for reviewing the alert, 
 
 ## Project Evidence
 
-Add the screenshots and demonstration assets to this repository when available. Suggested structure:
+<img width="1919" height="780" alt="866b44af-6ea2-43ba-aa47-5182b071c114" src="https://github.com/user-attachments/assets/e63c1855-aa31-431d-8bb1-a6abe4f5a5ce" />
+<img width="1919" height="799" alt="74dd6013-5f48-48a3-a610-b2b9eef8d192" src="https://github.com/user-attachments/assets/7ef40f6c-bde9-45bd-8fca-f3836dd4b160" />
 
 ```text
 .
@@ -212,19 +213,18 @@ Add the screenshots and demonstration assets to this repository when available. 
 
 ## Project Links
 
-Add the V2 links when they are ready:
-
 - **GitHub repository:** This repository.
-- **Live website / quote form:** _Add link_
-- **Demo video:** _Add link_
-- **Main workflow JSON:** _Add link or include it under `workflows/`_
-- **Error Handler JSON:** _Add link or include it under `workflows/`_
+- **Live website/quote form:** (https://screenshot-to-interface-327.lovable.app/)
+- **Demo video:** https://drive.google.com/file/d/1RoJSGeB2-Ii8Cfs8qmppOAejqHF8OGVL/view?usp=drive_link
+- **Main workflow JSON:** (https://drive.google.com/file/d/1Ah4koDggFRGqvOdjOt_UyX5NQUQdgkMP/view?usp=drive_link)
+- **Error Handler JSON:** https://drive.google.com/file/d/1CPRcGEIWDGtOk4WXEdlZLRDxdaCDfcRg/view?usp=drive_link
 
 ## Author
 
 **Omi Mojumdar**  
-AI Automation & n8n Developer  
-[LinkedIn](https://www.linkedin.com/in/omi-mojumdar-900923388/) · [Email](mailto:omimojumdar88@gmail.com)
+AI Automation Developer  
+[LinkedIn](https://www.linkedin.com/in/omi-mojumdar-900923388/) 
+· [Email](mailto:omimojumdar88@gmail.com)
 
 ---
 

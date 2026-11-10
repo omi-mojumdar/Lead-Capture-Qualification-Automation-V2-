@@ -1,0 +1,847 @@
+{
+  "name": "1.1 Cleaning Lead Capture copy V2",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "42bb8516-3e46-47d4-8686-b37517fd2811",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        -320,
+        -624
+      ],
+      "id": "63bb00a4-cb7f-45c0-8fd5-ffa79514a5b4",
+      "name": "Receives form data from Tally",
+      "webhookId": "42bb8516-3e46-47d4-8686-b37517fd2811"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json?.body || $input.first().json;\n\n// Detect Tally vs flat JSON (Lovable)\nconst tallyFields = data?.body?.data?.fields || \n                    data?.body?.fields || \n                    data?.fields || \n                    null;\n\nlet name, email, phone, zip_code, service_type,\n    bedrooms, bathrooms, frequency, preferred_date,\n    special_instructions, consent_status,\n    lead_source, submission_timestamp;\n\nif (tallyFields && Array.isArray(tallyFields) && tallyFields.length > 0) {\n  // ── TALLY FORMAT ──────────────────────────────\n  const get = (label) => {\n    const field = tallyFields.find(f => f.label === label);\n    if (!field) return \"\";\n    if (field.options && field.value) {\n      const ids = Array.isArray(field.value) ? field.value : [field.value];\n      const matched = field.options.filter(o => ids.includes(o.id));\n      return matched.map(o => o.text).join(\", \");\n    }\n    return field.value || \"\";\n  };\n\n  name                 = get(\"Full Name\").trim();\n  email                = get(\"Email Address\").toLowerCase().trim();\n  phone                = get(\"Phone Number\").trim();\n  zip_code             = get(\"ZIP Code\").trim();\n  service_type         = get(\"Service Type\");\n  bedrooms             = get(\"Number of Bedrooms\");\n  bathrooms            = get(\"Number of Bathrooms\");\n  frequency            = get(\"Cleaning Frequency\");\n  preferred_date       = get(\"Preferred Date\");\n  special_instructions = get(\"Special Instructions\");\n  consent_status       = get(\"I consent to being contacted about my cleaning enquiry\") || \"Not Provided\";\n  lead_source          = \"Tally Form\";\n  submission_timestamp = data?.body?.createdAt || new Date().toISOString();\n\n} else {\n  // ── LOVABLE FLAT JSON FORMAT ───────────────────\n  name                 = (data.name || \"\").trim();\n  email                = (data.email || \"\").toLowerCase().trim();\n  phone                = (data.phone || \"\").trim();\n  zip_code             = (data.zip_code || \"\").trim();\n  service_type         = data.service_type || \"\";\n  bedrooms             = data.bedrooms || \"\";\n  bathrooms            = data.bathrooms || \"\";\n  frequency            = data.frequency || \"\";\n  preferred_date       = data.preferred_date || \"\";\n  special_instructions = data.special_instructions || \"\";\n  consent_status       = data.consent_status || \"Not Provided\";\n  lead_source          = data.lead_source || \"Website Form\";\n  submission_timestamp = data.submission_timestamp || new Date().toISOString();\n}\n\nreturn [{\n  json: {\n    name,\n    email,\n    phone,\n    zip_code,\n    service_type,\n    bedrooms,\n    bathrooms,\n    frequency,\n    preferred_date,\n    special_instructions,\n    consent_status,\n    lead_source,\n    submission_timestamp,\n    status: \"NEW\"\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        -624
+      ],
+      "id": "4c940b43-ad4a-4774-9b61-d4613749c6bb",
+      "name": "Cleans messy Tally data into readable fields"
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\nconst missing = [];\n\nif (!lead.name) missing.push(\"Name\");\nif (!lead.email || !lead.email.includes(\"@\")) missing.push(\"Email\");\nif (!lead.phone) missing.push(\"Phone\");\nif (!lead.zip_code || lead.zip_code.length < 5) missing.push(\"ZIP Code\");\nif (!lead.service_type) missing.push(\"Service Type\");\nif (!lead.bedrooms) missing.push(\"Bedrooms\");\nif (!lead.bathrooms) missing.push(\"Bathrooms\");\nif (!lead.frequency) missing.push(\"Frequency\");\n\nif (missing.length > 0) {\n  return [{\n    json: {\n      ...lead,\n      status: \"INVALID\",\n      reason: \"Missing fields: \" + missing.join(\", \")\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ...lead,\n    status: \"VALID\"\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        128,
+        -624
+      ],
+      "id": "f55e98de-f77f-4a7c-8575-7afbda8c98a2",
+      "name": "Checks all required fields are filled"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "5b7a4cfa-41b1-4d20-9966-7ac61ae8b455",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "VALID",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        352,
+        -624
+      ],
+      "id": "9978589a-03a7-4501-9f89-030a61e624d7",
+      "name": "Routes: VALID → continue / INVALID → stop"
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\n\n// Supported ZIP codes (Austin, Texas area)\nconst supportedZips = [\n  \"78701\", \"78702\", \"78703\", \"78704\", \"78705\",\n  \"78731\", \"78732\", \"78733\", \"78741\", \"78745\"\n];\n\nconst inServiceArea = supportedZips.includes(lead.zip_code);\n\nreturn [{\n  json: {\n    ...lead,\n    serviceArea: inServiceArea ? \"SUPPORTED\" : \"UNSUPPORTED\",\n    status: inServiceArea ? \"VALID\" : \"OUT_OF_AREA\"\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        576,
+        -624
+      ],
+      "id": "dc75ff86-8fa0-47d2-8662-0a780ff736ab",
+      "name": "ZIP Check — is the customer in the service area?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "2a9cc49c-2e43-44bf-b990-c18284d7dd53",
+              "leftValue": "={{ $json.serviceArea }}",
+              "rightValue": "SUPPORTED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        800,
+        -624
+      ],
+      "id": "bacedf0f-a9a4-4f44-9816-5c343957e419",
+      "name": "Routes: SUPPORTED → continue / UNSUPPORTED → stop"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1rhKEsxXQIk59CKGdhBQr_35k_6wLXyzfSqRdWlfOUV0",
+          "mode": "list",
+          "cachedResultName": "Cleaning Leads CRM",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1rhKEsxXQIk59CKGdhBQr_35k_6wLXyzfSqRdWlfOUV0/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Leads",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1rhKEsxXQIk59CKGdhBQr_35k_6wLXyzfSqRdWlfOUV0/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Email",
+              "lookupValue": "={{ $json.email }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1024,
+        -624
+      ],
+      "id": "c1dfa4f2-0eea-4bc8-b096-44d5b57bff5a",
+      "name": "Duplicate Check — searches Sheets for same email/phone",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "xKohVo6h94lS3ugI",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "c983a112-9189-460d-9962-b1496af07629",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1248,
+        -624
+      ],
+      "id": "890a90c0-e56e-41ac-9c4c-2ff5680329b6",
+      "name": "Routes: NEW → continue / DUPLICATE → stop"
+    },
+    {
+      "parameters": {
+        "sendTo": "tirthomoj@gmail.com",
+        "subject": "=New Lead: {{ $('Classify Lead — Score + Tier').item.json.name }} — {{ $('Classify Lead — Score + Tier').item.json.lead_tier }} Priority",
+        "message": "=<div style=\"font-family:Arial,sans-serif;max-width:600px;margin:0 auto;\">\n\n  <h2 style=\"background:#1a73e8;color:white;padding:15px;border-radius:8px;\">\n    🧹 New Lead: {{ $('Classify Lead — Score + Tier').item.json.name }} — {{ $('Classify Lead — Score + Tier').item.json.lead_tier }} Priority\n  </h2>\n\n  <h3 style=\"color:#1a73e8;\">👤 Customer Details</h3>\n  <table style=\"width:100%;border-collapse:collapse;\">\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Name</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Classify Lead — Score + Tier').item.json.name }}</td></tr>\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Email</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Classify Lead — Score + Tier').item.json.email }}</td></tr>\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Phone</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Classify Lead — Score + Tier').item.json.phone }}</td></tr>\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>ZIP Code</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Classify Lead — Score + Tier').item.json.zip_code }}</td></tr>\n  </table>\n\n  <h3 style=\"color:#1a73e8;\">🏠 Service Details</h3>\n  <table style=\"width:100%;border-collapse:collapse;\">\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Service Type</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Classify Lead — Score + Tier').item.json.service_type }}</td></tr>\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Bedrooms</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Classify Lead — Score + Tier').item.json.bedrooms }}</td></tr>\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Bathrooms</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Classify Lead — Score + Tier').item.json.bathrooms }}</td></tr>\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Frequency</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Classify Lead — Score + Tier').item.json.frequency }}</td></tr>\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Preferred Date</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Classify Lead — Score + Tier').item.json.preferred_date }}</td></tr>\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Special Instructions</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Classify Lead — Score + Tier').item.json.special_instructions || 'None' }}</td></tr>\n  </table>\n\n  <h3 style=\"color:#1a73e8;\">🏆 Lead Classification</h3>\n  <table style=\"width:100%;border-collapse:collapse;\">\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Lead Tier</b></td><td style=\"padding:8px;border:1px solid #ddd;\"><b style=\"color:#e53935;\">{{ $('Classify Lead — Score + Tier').item.json.lead_tier }}</b></td></tr>\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Lead Score</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Classify Lead — Score + Tier').item.json.lead_score }}</td></tr>\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Next Action</b></td><td style=\"padding:8px;border:1px solid #ddd;\"><b>{{ $('Classify Lead — Score + Tier').item.json.next_action }}</b></td></tr>\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Note</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Classify Lead — Score + Tier').item.json.follow_up_note }}</td></tr>\n  </table>\n\n  <h3 style=\"color:#1a73e8;\">🤖 AI Review</h3>\n  <table style=\"width:100%;border-collapse:collapse;\">\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Has Pets</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Extract AI Signals — Pets + Allergies').item.json.ai_extraction ? JSON.parse($('Extract AI Signals — Pets + Allergies').item.json.ai_extraction).has_pets : 'N/A' }}</td></tr>\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Has Allergies</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Extract AI Signals — Pets + Allergies').item.json.ai_extraction ? JSON.parse($('Extract AI Signals — Pets + Allergies').item.json.ai_extraction).has_allergies : 'N/A' }}</td></tr>\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Urgency</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Extract AI Signals — Pets + Allergies').item.json.urgency_signal || 'NORMAL' }}</td></tr>\n    <tr><td style=\"padding:8px;border:1px solid #ddd;\"><b>Human Review Needed</b></td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $('Extract AI Signals — Pets + Allergies').item.json.human_review_required }}</td></tr>\n  </table>\n\n  <p style=\"color:#666;font-size:12px;margin-top:20px;\">\n    Submitted: {{ $('Classify Lead — Score + Tier').item.json.submission_timestamp }}\n  </p>\n\n</div>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2128,
+        -608
+      ],
+      "id": "797d3a4f-a460-42a8-872a-292cdf5a4032",
+      "name": "Gmail alert — notifies the owner instantly",
+      "webhookId": "40c8076f-fc2d-4b36-978a-e161c299ed02",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "iqkC2aAcW2qbjEOW",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $('Cleans messy Tally data into readable fields').item.json;\n\nconst serviceType = original.service_type || '';\nconst bedrooms = parseInt(original.bedrooms) || 0;\nconst bathrooms = parseInt(original.bathrooms) || 0;\nconst frequency = original.frequency || '';\nconst specialInstructions = original.special_instructions || '';\n\nlet score = 0;\n\nif (serviceType === 'Deep Cleaning') score += 40;\nelse if (serviceType === 'Move In / Move Out') score += 35;\nelse if (serviceType === 'Post-Construction') score += 35;\nelse if (serviceType === 'Standard Cleaning') score += 20;\n\nif (bedrooms >= 4) score += 25;\nelse if (bedrooms === 3) score += 20;\nelse if (bedrooms === 2) score += 15;\nelse score += 5;\n\nif (frequency === 'Weekly') score += 30;\nelse if (frequency === 'Bi-Weekly') score += 25;\nelse if (frequency === 'Monthly') score += 15;\nelse if (frequency === 'One-Time') score += 5;\n\nif (bathrooms >= 3) score += 10;\n\nlet leadTier, nextAction, followUpNote;\n\nif (score >= 80) {\n  leadTier = 'HIGH';\n  nextAction = 'Call within 2 hours';\n  followUpNote = 'High-value lead. Prioritize personal outreach.';\n} else if (score >= 50) {\n  leadTier = 'MEDIUM';\n  nextAction = 'Send quote within 24 hours';\n  followUpNote = 'Qualified lead. Send personalized quote today.';\n} else {\n  leadTier = 'LOW';\n  nextAction = 'Send standard follow-up email';\n  followUpNote = 'Standard enquiry. Use email sequence.';\n}\n\nconst needsAiReview = specialInstructions.trim().length > 0;\n\nreturn [{\n  json: {\n    ...original,\n    lead_score: score,\n    lead_tier: leadTier,\n    next_action: nextAction,\n    follow_up_note: followUpNote,\n    needs_ai_review: needsAiReview\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        -624
+      ],
+      "id": "05519fb9-9473-4751-91cd-4366d8fe1f9d",
+      "name": "Classify Lead — Score + Tier"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "aff6c003-a1c8-4b38-b0fd-f476dffe395e",
+              "leftValue": "={{ $json.needs_ai_review }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1696,
+        -624
+      ],
+      "id": "2e311586-43b9-4a4c-91a5-243cb9923c2a",
+      "name": "Has Special Instructions?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst text = (input.special_instructions || '').toLowerCase();\n\n// Step 1 — Keyword Extraction (replaces HTTP Request + Gemini)\nconst aiResult = {\n  has_pets: /dog|cat|pet|animal|bird/i.test(text),\n  has_allergies: /allerg|sensitive|reaction/i.test(text),\n  allergy_details: /allerg|sensitive|reaction/i.test(text) ? text : null,\n  urgency_signal: /urgent|asap|emergency|today/i.test(text) ? 'URGENT' : 'NORMAL',\n  specific_areas: /kitchen|bathroom|bedroom|living|basement|garage/i.test(text) ? text : null,\n  access_notes: /key|code|door|access|lockbox/i.test(text) ? text : null\n};\n\n// Step 2 — Validate (original Code in JavaScript1 logic)\nconst requiredKeys = ['has_pets', 'has_allergies', 'urgency_signal'];\nconst hasAllKeys = requiredKeys.every(key => aiResult.hasOwnProperty(key));\n\nif (!hasAllKeys) {\n  return [{\n    json: {\n      ...input,\n      ai_extraction: null,\n      ai_valid: false,\n      human_review_required: true,\n      human_review_reason: 'Extraction missing required fields'\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ...input,\n    ai_extraction: JSON.stringify(aiResult),\n    ai_valid: true,\n    human_review_required: false,\n    urgency_signal: aiResult.urgency_signal || 'NORMAL'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        -752
+      ],
+      "id": "ad83928f-2258-4067-a118-7b52cba052b4",
+      "name": "Extract AI Signals — Pets + Allergies"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1rhKEsxXQIk59CKGdhBQr_35k_6wLXyzfSqRdWlfOUV0",
+          "mode": "list",
+          "cachedResultName": "Cleaning Leads CRM",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1rhKEsxXQIk59CKGdhBQr_35k_6wLXyzfSqRdWlfOUV0/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1223278310,
+          "mode": "list",
+          "cachedResultName": "Audit Log",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1rhKEsxXQIk59CKGdhBQr_35k_6wLXyzfSqRdWlfOUV0/edit#gid=1223278310"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ new Date().toISOString() }}",
+            "Event": "Lead Qualified and Stored",
+            "Lead Name": "={{ $('Classify Lead — Score + Tier').item.json.name }}",
+            "Email": "={{ $('Classify Lead — Score + Tier').item.json.email }}",
+            "Lead Tier": "={{ $('Classify Lead — Score + Tier').item.json.lead_tier }}",
+            "Status": "={{ $('Classify Lead — Score + Tier').item.json.status ?? 'NEW' }}",
+            "Details": "={{ 'Tier: ' + $('Classify Lead — Score + Tier').item.json.lead_tier + ', Score: ' + $('Classify Lead — Score + Tier').item.json.lead_score + ', Next: ' + $('Classify Lead — Score + Tier').item.json.next_action }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Event",
+              "displayName": "Event",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Lead Name",
+              "displayName": "Lead Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Lead Tier",
+              "displayName": "Lead Tier",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Details",
+              "displayName": "Details",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2544,
+        -608
+      ],
+      "id": "84595239-db54-478a-b851-656776370acd",
+      "name": "Audit Log — Record Event1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "xKohVo6h94lS3ugI",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1rhKEsxXQIk59CKGdhBQr_35k_6wLXyzfSqRdWlfOUV0",
+          "mode": "list",
+          "cachedResultName": "Cleaning Leads CRM",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1rhKEsxXQIk59CKGdhBQr_35k_6wLXyzfSqRdWlfOUV0/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Leads",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1rhKEsxXQIk59CKGdhBQr_35k_6wLXyzfSqRdWlfOUV0/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Name": "={{ $('Classify Lead — Score + Tier').item.json.name }}",
+            "Email": "={{ $('Classify Lead — Score + Tier').item.json.email }}",
+            "Phone": "={{ $('Classify Lead — Score + Tier').item.json.phone }}",
+            "Service Type": "={{ $('Classify Lead — Score + Tier').item.json.service_type }}",
+            "Bedrooms": "={{ $('Classify Lead — Score + Tier').item.json.bedrooms }}",
+            "Bathrooms": "={{ $('Classify Lead — Score + Tier').item.json.bathrooms }}",
+            "Frequency": "={{ $('Classify Lead — Score + Tier').item.json.frequency }}",
+            "Preferred Date": "={{ $('Classify Lead — Score + Tier').item.json.preferred_date }}",
+            "Special Instructions": "={{ $('Classify Lead — Score + Tier').item.json.special_instructions }}",
+            "Service Area": "={{ $('Classify Lead — Score + Tier').item.json.serviceArea }}",
+            "Status": "={{ $('Classify Lead — Score + Tier').item.json.status }}",
+            "Submitted At": "={{ $('Classify Lead — Score + Tier').item.json.submission_timestamp }}",
+            "Lead Source": "={{ $('Classify Lead — Score + Tier').item.json.lead_source }}",
+            "Consent Status": "={{ $('Classify Lead — Score + Tier').item.json.consent_status ?? 'Not Captured' }}",
+            "Lead Score": "={{ $('Classify Lead — Score + Tier').item.json.lead_score }}",
+            "Lead Tier": "={{ $('Classify Lead — Score + Tier').item.json.lead_tier }}",
+            "Next Action": "={{ $('Classify Lead — Score + Tier').item.json.next_action }}",
+            "AI Extraction": "={{ 'Pets: ' + ($('Extract AI Signals — Pets + Allergies').item.json.ai_extraction ? JSON.parse($('Extract AI Signals — Pets + Allergies').item.json.ai_extraction).has_pets : 'N/A') + ' | Allergies: ' + ($('Extract AI Signals — Pets + Allergies').item.json.ai_extraction ? JSON.parse($('Extract AI Signals — Pets + Allergies').item.json.ai_extraction).has_allergies : 'N/A') + ' | Urgency: ' + ($('Extract AI Signals — Pets + Allergies').item.json.urgency_signal || 'NORMAL') }}",
+            "Human Review Required": "={{ $('Extract AI Signals — Pets + Allergies').item.json.human_review_required ?? false }}",
+            "Human Review Reason": "={{ $('Extract AI Signals — Pets + Allergies').item.json.human_review_reason ?? '' }}",
+            "ZIP Code": "={{ $('Classify Lead — Score + Tier').item.json.zip_code }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ZIP Code",
+              "displayName": "ZIP Code",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Service Type",
+              "displayName": "Service Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Bedrooms",
+              "displayName": "Bedrooms",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Bathrooms",
+              "displayName": "Bathrooms",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Frequency",
+              "displayName": "Frequency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Preferred Date",
+              "displayName": "Preferred Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Special Instructions",
+              "displayName": "Special Instructions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Service Area",
+              "displayName": "Service Area",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Submitted At",
+              "displayName": "Submitted At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Lead Source",
+              "displayName": "Lead Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Consent Status",
+              "displayName": "Consent Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Lead Score",
+              "displayName": "Lead Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Lead Tier",
+              "displayName": "Lead Tier",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Next Action",
+              "displayName": "Next Action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "AI Extraction",
+              "displayName": "AI Extraction",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Human Review Required",
+              "displayName": "Human Review Required",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Human Review Reason",
+              "displayName": "Human Review Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2352,
+        -608
+      ],
+      "id": "faef8417-1129-413c-8ff5-f3e240d2ad43",
+      "name": "New Leads",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "xKohVo6h94lS3ugI",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Receives form data from Tally": {
+      "main": [
+        [
+          {
+            "node": "Cleans messy Tally data into readable fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cleans messy Tally data into readable fields": {
+      "main": [
+        [
+          {
+            "node": "Checks all required fields are filled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checks all required fields are filled": {
+      "main": [
+        [
+          {
+            "node": "Routes: VALID → continue / INVALID → stop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Routes: VALID → continue / INVALID → stop": {
+      "main": [
+        [
+          {
+            "node": "ZIP Check — is the customer in the service area?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ZIP Check — is the customer in the service area?": {
+      "main": [
+        [
+          {
+            "node": "Routes: SUPPORTED → continue / UNSUPPORTED → stop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Routes: SUPPORTED → continue / UNSUPPORTED → stop": {
+      "main": [
+        [
+          {
+            "node": "Duplicate Check — searches Sheets for same email/phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Duplicate Check — searches Sheets for same email/phone": {
+      "main": [
+        [
+          {
+            "node": "Routes: NEW → continue / DUPLICATE → stop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Routes: NEW → continue / DUPLICATE → stop": {
+      "main": [
+        [
+          {
+            "node": "Classify Lead — Score + Tier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail alert — notifies the owner instantly": {
+      "main": [
+        [
+          {
+            "node": "New Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Lead — Score + Tier": {
+      "main": [
+        [
+          {
+            "node": "Has Special Instructions?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Special Instructions?": {
+      "main": [
+        [
+          {
+            "node": "Extract AI Signals — Pets + Allergies",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gmail alert — notifies the owner instantly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract AI Signals — Pets + Allergies": {
+      "main": [
+        [
+          {
+            "node": "Gmail alert — notifies the owner instantly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New Leads": {
+      "main": [
+        [
+          {
+            "node": "Audit Log — Record Event1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "BjlP75riqDx0L7Rn",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "e81ac991-d598-4b7e-943e-8bd77fb57bd8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0b4c464bd30ffc0e1cfc46638c54d90aae96f20773fc2162ec29ba9f04b7a5c2"
+  },
+  "nodeGroups": [],
+  "id": "ag2I6mTL76yCPDiw",
+  "tags": []
+}
